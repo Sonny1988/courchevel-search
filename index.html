@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Find Your Chalet — courchevel.rentals</title>
+<style>
+/* ── RESET ────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --navy:       #0a1628;
+  --navy2:      #1a2a4a;
+  --gold:       #c9a96e;
+  --gold-light: #e8d5a8;
+  --cream:      #f5f0e8;
+  --cream2:     #e8dcc8;
+  --text:       #1a1a2e;
+  --muted:      #666;
+  --white:      #ffffff;
+  --serif:      Georgia, 'Times New Roman', serif;
+  --sans:       -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --radius:     4px;
+  --shadow:     0 4px 24px rgba(10,22,40,.12);
+}
+
+body { font-family: var(--sans); background: #ede9e3; color: var(--text); min-height: 100vh; }
+
+/* ── HEADER ───────────────────────────────────────────────────────────── */
+.site-header {
+  background: var(--navy);
+  padding: 14px 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 100;
+}
+.logo { font-family: var(--serif); font-size: 15px; letter-spacing: 2px;
+  text-transform: uppercase; color: var(--gold); text-decoration: none; }
+.tagline { font-size: 11px; color: rgba(255,255,255,.35); letter-spacing: 1px;
+  text-transform: uppercase; }
+
+/* ── MAIN ─────────────────────────────────────────────────────────────── */
+.main { max-width: 980px; margin: 0 auto; padding: 28px 16px 56px; }
+
+/* ── SEARCH CARD ──────────────────────────────────────────────────────── */
+.search-card {
+  background: var(--white); border-radius: var(--radius);
+  box-shadow: var(--shadow); overflow: hidden; margin-bottom: 32px;
+}
+.search-head { background: var(--navy); padding: 22px 28px; }
+.search-head h1 { font-family: var(--serif); font-size: 22px; color: var(--white);
+  font-weight: normal; margin-bottom: 4px; }
+.search-head p { font-size: 12px; color: rgba(255,255,255,.4); letter-spacing: .5px; }
+.search-body { padding: 24px 28px; }
+
+/* ── FORM GRID ────────────────────────────────────────────────────────── */
+.fgrid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+@media(min-width:640px){ .fgrid { grid-template-columns: 1fr 1fr; } }
+.fgroup { display: flex; flex-direction: column; gap: 7px; }
+.fgroup.full { grid-column: 1 / -1; }
+.flabel { font-size: 10.5px; text-transform: uppercase; letter-spacing: 1.5px;
+  color: var(--muted); font-weight: 600; }
+.flabel em { color: var(--gold); font-style: normal; font-size: 10px;
+  letter-spacing: 0; text-transform: none; font-weight: normal; margin-left: 4px; }
+.fselect, .finput {
+  padding: 10px 14px; border: 1.5px solid var(--cream2); border-radius: var(--radius);
+  font-size: 14px; color: var(--text); background: var(--white);
+  transition: border-color .2s; width: 100%;
+}
+.fselect {
+  appearance: none; -webkit-appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23aaa' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center; padding-right: 36px;
+}
+.fselect:focus, .finput:focus { outline: none; border-color: var(--gold); }
+.fnote { font-size: 11px; color: var(--muted); font-style: italic; min-height: 16px; }
+
+/* Amenity checkboxes */
+.am-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+@media(min-width:500px){ .am-grid { grid-template-columns: repeat(3, 1fr); } }
+.am-label {
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+  font-size: 13px; color: var(--text); padding: 8px 10px;
+  border: 1.5px solid var(--cream2); border-radius: var(--radius);
+  transition: all .15s; user-select: none;
+}
+.am-label:hover { border-color: var(--gold); background: var(--cream); }
+.am-label.on { border-color: var(--gold); background: #fdf8f0; }
+.am-label input { width: 15px; height: 15px; accent-color: var(--gold);
+  cursor: pointer; flex-shrink: 0; }
+
+/* Search button */
+.search-btn {
+  width: 100%; padding: 13px; background: var(--navy); color: var(--white);
+  border: none; border-radius: var(--radius); font-size: 13px; letter-spacing: 2px;
+  text-transform: uppercase; cursor: pointer; font-family: var(--sans);
+  transition: background .2s; display: flex; align-items: center;
+  justify-content: center; gap: 8px; margin-top: 4px;
+}
+.search-btn:hover { background: var(--navy2); }
+.search-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+/* ── LOADING ──────────────────────────────────────────────────────────── */
+.loading { display: none; text-align: center; padding: 56px 24px; }
+.loading.on { display: block; }
+.spinner {
+  width: 38px; height: 38px; border: 3px solid var(--cream2);
+  border-top-color: var(--gold); border-radius: 50%;
+  animation: spin .75s linear infinite; margin: 0 auto 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading p { font-size: 13px; color: var(--muted); letter-spacing: .5px; }
+
+/* ── RESULTS ──────────────────────────────────────────────────────────── */
+.results { display: none; }
+.results.on { display: block; }
+
+.results-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 12px; margin-bottom: 16px;
+}
+.results-count { font-family: var(--serif); font-size: 21px; color: var(--navy); }
+.results-actions { display: flex; gap: 9px; flex-wrap: wrap; }
+
+.btn-outline {
+  padding: 8px 16px; border: 1.5px solid var(--navy); border-radius: var(--radius);
+  background: transparent; color: var(--navy); font-size: 11.5px; letter-spacing: 1px;
+  text-transform: uppercase; cursor: pointer; transition: all .15s; font-family: var(--sans);
+}
+.btn-outline:hover { background: var(--navy); color: var(--white); }
+
+.btn-gold {
+  padding: 8px 18px; border: 1.5px solid var(--gold); border-radius: var(--radius);
+  background: var(--gold); color: var(--navy); font-size: 11.5px; letter-spacing: 1px;
+  text-transform: uppercase; cursor: pointer; transition: all .15s;
+  font-family: var(--sans); font-weight: 700;
+}
+.btn-gold:hover { background: #b8904d; border-color: #b8904d; }
+
+.summary-bar {
+  background: var(--cream); border-left: 3px solid var(--gold);
+  padding: 9px 14px; margin-bottom: 20px; font-size: 13px; color: var(--muted);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+
+/* ── PROPERTY CARDS ───────────────────────────────────────────────────── */
+.pgrid { display: grid; grid-template-columns: 1fr; gap: 24px; }
+@media(min-width:640px){ .pgrid { grid-template-columns: repeat(2, 1fr); } }
+
+.pcard {
+  background: var(--white); border-radius: var(--radius);
+  box-shadow: var(--shadow); overflow: hidden;
+  transition: transform .2s, box-shadow .2s;
+}
+.pcard:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(10,22,40,.18); }
+
+.pcard-photo {
+  position: relative; aspect-ratio: 16/10; overflow: hidden;
+  background: linear-gradient(135deg, #0a1628 0%, #1a3a5c 50%, #2d6a9f 100%);
+}
+.pcard-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pcard-no-photo {
+  display: flex; align-items: center; justify-content: center;
+  height: 100%; color: rgba(255,255,255,.15); font-size: 52px;
+}
+
+.price-badge {
+  position: absolute; top: 12px; right: 12px;
+  background: rgba(10,22,40,.88); color: var(--gold);
+  padding: 7px 13px; border-radius: var(--radius);
+  font-family: var(--serif); font-size: 17px; line-height: 1.2; text-align: center;
+  backdrop-filter: blur(4px);
+}
+.price-badge small { display: block; font-family: var(--sans); font-size: 9.5px;
+  color: rgba(255,255,255,.45); text-transform: uppercase; letter-spacing: .5px; }
+
+.type-badge {
+  position: absolute; bottom: 11px; left: 11px;
+  background: rgba(10,22,40,.7); color: rgba(255,255,255,.9);
+  padding: 3px 10px; font-size: 10px; text-transform: uppercase;
+  letter-spacing: 1px; border-radius: 2px; backdrop-filter: blur(3px);
+}
+
+.pcard-body { padding: 18px; }
+
+.pcard-name { font-family: var(--serif); font-size: 20px; color: var(--navy);
+  font-weight: normal; margin-bottom: 3px; }
+.pcard-loc { font-size: 11.5px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 1px; margin-bottom: 13px; }
+
+.stats-row {
+  display: flex; background: var(--cream); border-radius: var(--radius);
+  padding: 9px 0; margin-bottom: 13px;
+}
+.stat { flex: 1; text-align: center; border-right: 1px solid var(--cream2); }
+.stat:last-child { border-right: none; }
+.stat-v { font-family: var(--serif); font-size: 18px; color: var(--navy);
+  display: block; line-height: 1; margin-bottom: 2px; }
+.stat-v.gold { color: var(--gold); font-size: 14px; }
+.stat-l { font-size: 9.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 13px; }
+.chip { background: #f0ede8; border: 1px solid var(--cream2); padding: 3px 9px;
+  font-size: 11px; color: #555; border-radius: 2px; }
+.chip.hi { background: #fdf8f0; border-color: var(--gold-light); color: #8a6a30; }
+
+.pdesc { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 13px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+.card-footer {
+  padding-top: 13px; border-top: 1px solid var(--cream2);
+  display: flex; gap: 9px;
+}
+.cta { flex: 1; padding: 10px; text-align: center; text-decoration: none;
+  font-size: 11.5px; letter-spacing: 1px; text-transform: uppercase;
+  border-radius: var(--radius); transition: background .15s; display: block; }
+.cta-dark { background: var(--navy); color: var(--white); }
+.cta-dark:hover { background: var(--navy2); }
+.cta-gold { background: var(--gold); color: var(--navy); font-weight: 700; }
+.cta-gold:hover { background: #b8904d; }
+
+/* Print-only contact (hidden on screen) */
+.print-contact { display: none; }
+
+/* No results */
+.no-results { text-align: center; padding: 52px 24px; background: var(--white);
+  border-radius: var(--radius); grid-column: 1 / -1; }
+.no-results .icon { font-size: 52px; margin-bottom: 16px; }
+.no-results h3 { font-family: var(--serif); font-size: 20px; margin-bottom: 8px; color: var(--navy); }
+.no-results p { color: var(--muted); font-size: 14px; }
+
+/* ── FOOTER ───────────────────────────────────────────────────────────── */
+.site-footer { text-align: center; padding: 24px; color: var(--muted); font-size: 12px; }
+.site-footer a { color: var(--gold); text-decoration: none; }
+
+/* ══════════════════════════════════════════════════════════════════════ */
+/* ── PRINT STYLES ─────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════ */
+@media print {
+  @page { size: A4; margin: 0; }
+
+  /* Hide everything not for print */
+  .site-header, .search-card, .results-bar, .summary-bar,
+  .card-footer, .site-footer, .no-print { display: none !important; }
+
+  body { background: white; font-size: 10pt; }
+  .main { max-width: none; padding: 0; margin: 0; }
+
+  /* Show print header */
+  .print-header { display: flex !important; }
+  .results.on { display: block !important; }
+  .pgrid { display: block !important; }
+
+  /* One property per page */
+  .pcard {
+    page-break-before: always;
+    box-shadow: none !important; border-radius: 0 !important;
+    transform: none !important; break-before: page;
+  }
+  .pcard:first-child { page-break-before: avoid; break-before: avoid; }
+
+  .pcard-photo {
+    aspect-ratio: unset; height: 70mm;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .price-badge, .type-badge {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .stats-row, .chips {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .pdesc { -webkit-line-clamp: unset; overflow: visible; display: block; }
+
+  /* Show print contact block */
+  .print-contact {
+    display: block !important;
+    margin-top: 14px; padding: 10px 14px;
+    background: #f5f0e8; border-left: 3px solid #c9a96e;
+    font-size: 10pt;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+}
+
+/* Print header: hidden on screen */
+.print-header {
+  display: none;
+  background: #0a1628; color: white; padding: 14px 24px;
+  justify-content: space-between; align-items: center;
+  -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+</style>
+</head>
+<body>
+
+<!-- Screen header -->
+<header class="site-header no-print">
+  <a href="https://courchevel.rentals" class="logo">courchevel.rentals</a>
+  <span class="tagline">Luxury Alpine Rentals · Les 3 Vallées</span>
+</header>
+
+<!-- Print-only page header (appears at top when printing) -->
+<div class="print-header" id="printHeader">
+  <div>
+    <div style="font-family:Georgia,serif;font-size:14pt;color:#c9a96e;letter-spacing:2px;text-transform:uppercase">courchevel.rentals</div>
+    <div style="font-size:8pt;color:rgba(255,255,255,.4);margin-top:2px;letter-spacing:1px">Luxury Alpine Rentals · Les 3 Vallées</div>
+  </div>
+  <div id="printCriteria" style="text-align:right;font-size:9pt;color:rgba(255,255,255,.65);max-width:50%"></div>
+</div>
+
+<main class="main">
+
+  <!-- ── SEARCH FORM ─────────────────────────────────────────────────── -->
+  <div class="search-card" id="searchCard">
+    <div class="search-head">
+      <h1>Find Your Perfect Property</h1>
+      <p>Live search across our full portfolio — Airtable &amp; Cimalpes real-time data</p>
+    </div>
+    <div class="search-body">
+      <form id="searchForm">
+        <div class="fgrid">
+
+          <!-- Village -->
+          <div class="fgroup">
+            <label class="flabel">Village</label>
+            <select class="fselect" name="location">
+              <option value="any">Any village</option>
+              <option value="courchevel-1850">Courchevel 1850</option>
+              <option value="courchevel-1650">Courchevel 1650 (Moriond)</option>
+              <option value="courchevel-1550">Courchevel 1550</option>
+              <option value="la-tania">La Tania</option>
+              <option value="le-praz">Le Praz (1300)</option>
+            </select>
+          </div>
+
+          <!-- Type -->
+          <div class="fgroup">
+            <label class="flabel">Property type</label>
+            <select class="fselect" name="type">
+              <option value="any">Chalet &amp; Apartment</option>
+              <option value="chalet">Chalet only</option>
+              <option value="apartment">Apartment only</option>
+            </select>
+          </div>
+
+          <!-- Check-in -->
+          <div class="fgroup">
+            <label class="flabel">Arrival date <em>(Saturday to Saturday)</em></label>
+            <input type="date" class="finput" name="checkin" id="checkin">
+            <span class="fnote" id="dateNote"></span>
+          </div>
+
+          <!-- Guests -->
+          <div class="fgroup">
+            <label class="flabel">Guests</label>
+            <select class="fselect" name="guests">
+              <option value="">Any group size</option>
+              <option value="2">2+ guests</option>
+              <option value="4">4+ guests</option>
+              <option value="6">6+ guests</option>
+              <option value="8">8+ guests</option>
+              <option value="10">10+ guests</option>
+              <option value="12">12+ guests</option>
+              <option value="14">14+ guests</option>
+              <option value="16">16+ guests</option>
+            </select>
+          </div>
+
+          <!-- Budget from -->
+          <div class="fgroup">
+            <label class="flabel">Budget — from</label>
+            <select class="fselect" name="budget_min">
+              <option value="">No minimum</option>
+              <option value="3000">€3,000 / week</option>
+              <option value="5000">€5,000 / week</option>
+              <option value="10000">€10,000 / week</option>
+              <option value="20000">€20,000 / week</option>
+              <option value="40000">€40,000 / week</option>
+            </select>
+          </div>
+
+          <!-- Budget to -->
+          <div class="fgroup">
+            <label class="flabel">Budget — up to</label>
+            <select class="fselect" name="budget_max">
+              <option value="">No maximum</option>
+              <option value="5000">€5,000 / week</option>
+              <option value="10000">€10,000 / week</option>
+              <option value="20000">€20,000 / week</option>
+              <option value="40000">€40,000 / week</option>
+              <option value="80000">€80,000 / week</option>
+              <option value="150000">€150,000 / week</option>
+            </select>
+          </div>
+
+          <!-- Amenities -->
+          <div class="fgroup full">
+            <label class="flabel">Must-have features <em>(optional)</em></label>
+            <div class="am-grid">
+              <label class="am-label"><input type="checkbox" name="features" value="ski-in-out"> ⛷ Ski-in / Ski-out</label>
+              <label class="am-label"><input type="checkbox" name="features" value="pool"> 🏊 Swimming pool</label>
+              <label class="am-label"><input type="checkbox" name="features" value="jacuzzi"> ♨️ Jacuzzi</label>
+              <label class="am-label"><input type="checkbox" name="features" value="sauna"> 🧖 Sauna</label>
+              <label class="am-label"><input type="checkbox" name="features" value="cinema"> 🎬 Home cinema</label>
+              <label class="am-label"><input type="checkbox" name="features" value="catered"> 👨‍🍳 Full catered service</label>
+              <label class="am-label"><input type="checkbox" name="features" value="private-chef-option"> 🍽 Private chef</label>
+              <label class="am-label"><input type="checkbox" name="features" value="fireplace"> 🔥 Fireplace</label>
+              <label class="am-label"><input type="checkbox" name="features" value="wine-cellar"> 🍷 Wine cellar</label>
+            </div>
+          </div>
+
+          <!-- Submit -->
+          <div class="fgroup full">
+            <button type="submit" class="search-btn" id="searchBtn">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              Search Properties
+            </button>
+          </div>
+
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── LOADING ─────────────────────────────────────────────────────── -->
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <p>Searching across Airtable &amp; Cimalpes…</p>
+  </div>
+
+  <!-- ── RESULTS ─────────────────────────────────────────────────────── -->
+  <section class="results" id="results">
+
+    <div class="results-bar no-print">
+      <div class="results-count" id="resultsCount">—</div>
+      <div class="results-actions">
+        <button class="btn-outline" onclick="resetSearch()">← New search</button>
+        <button class="btn-gold" onclick="window.print()">🖨 Save as PDF</button>
+      </div>
+    </div>
+
+    <div class="summary-bar no-print" id="summaryBar"></div>
+
+    <div class="pgrid" id="pgrid"></div>
+
+  </section>
+
+</main>
+
+<footer class="site-footer no-print">
+  <a href="https://courchevel.rentals">courchevel.rentals</a> · Luxury Alpine Rentals · Les 3 Vallées<br>
+  <small style="margin-top:4px;display:block">contact@courchevel.rentals</small>
+</footer>
+
+<script>
+// ── Config ────────────────────────────────────────────────────────────────
+const CONTACT_EMAIL = 'contact@courchevel.rentals';
+const WHATSAPP_NUMBER = ''; // e.g. '33612345678' — update before sending to clients
+
+// ── Feature display map ───────────────────────────────────────────────────
+const FEAT = {
+  'ski-in-out':           '⛷ Ski-in/out',
+  'pool':                 '🏊 Pool',
+  'jacuzzi':              '♨️ Jacuzzi',
+  'sauna':                '🧖 Sauna',
+  'spa':                  '💆 Spa',
+  'cinema':               '🎬 Cinema',
+  'catered':              '👨‍🍳 Catered',
+  'private-chef-option':  '🍽 Chef',
+  'fireplace':            '🔥 Fireplace',
+  'wine-cellar':          '🍷 Wine cellar',
+  'garage':               '🚗 Garage',
+  'terrace':              '🌅 Terrace',
+};
+const FEAT_HI = ['ski-in-out','pool','jacuzzi','sauna','catered','private-chef-option'];
+
+const LOC = {
+  'courchevel-1850': 'Courchevel 1850',
+  'courchevel-1650': 'Courchevel 1650',
+  'courchevel-1550': 'Courchevel 1550',
+  'la-tania':        'La Tania',
+  'le-praz':         'Le Praz',
+};
+
+// ── Date helpers ──────────────────────────────────────────────────────────
+function toSaturday(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  const day = d.getDay();
+  if (day === 6) return iso;
+  d.setDate(d.getDate() + ((6 - day + 7) % 7 || 7));
+  return d.toISOString().slice(0, 10);
+}
+function addDays(iso, n) {
+  const d = new Date(iso + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+function fmtDate(iso) {
+  if (!iso) return '';
+  return new Date(iso + 'T12:00:00').toLocaleDateString('en-GB',
+    { day:'numeric', month:'short', year:'numeric' });
+}
+
+// Saturday-only date picker
+const checkinEl = document.getElementById('checkin');
+const dateNoteEl = document.getElementById('dateNote');
+checkinEl.min = new Date().toISOString().slice(0, 10);
+
+checkinEl.addEventListener('change', () => {
+  const sat = toSaturday(checkinEl.value);
+  checkinEl.value = sat;
+  dateNoteEl.textContent = `Departure: Saturday ${fmtDate(addDays(sat, 7))}`;
+});
+
+// ── Checkbox highlight ────────────────────────────────────────────────────
+document.querySelectorAll('.am-label').forEach(lbl => {
+  lbl.querySelector('input').addEventListener('change', e => {
+    lbl.classList.toggle('on', e.target.checked);
+  });
+});
+
+// ── Price format ──────────────────────────────────────────────────────────
+function fmtPrice(n, currency) {
+  const sym = currency === 'GBP' ? '£' : '€';
+  return n >= 1000 ? sym + (n / 1000).toFixed(n % 1000 === 0 ? 0 : 1) + 'k'
+                   : sym + n.toLocaleString();
+}
+
+// ── Build summary text ────────────────────────────────────────────────────
+function buildSummary(p) {
+  const parts = [];
+  if (p.location && p.location !== 'any') parts.push(LOC[p.location] || p.location);
+  if (p.checkin) parts.push(`${fmtDate(p.checkin)} → ${fmtDate(addDays(p.checkin,7))}`);
+  if (p.guests) parts.push(`${p.guests}+ guests`);
+  if (p.budget_min && p.budget_max)
+    parts.push(`€${p.budget_min/1000|0}k – €${p.budget_max/1000|0}k/wk`);
+  else if (p.budget_min) parts.push(`from €${p.budget_min/1000|0}k/wk`);
+  else if (p.budget_max) parts.push(`up to €${p.budget_max/1000|0}k/wk`);
+  if (p.features?.length)
+    parts.push(p.features.map(f => FEAT[f] || f).join(', '));
+  return parts.join(' · ');
+}
+
+// ── Render one property card ──────────────────────────────────────────────
+function renderCard(p) {
+  const photo = p.photos?.[0] || null;
+  const pr = p.pricing;
+
+  const chips = (p.features || []).slice(0, 6).map(f =>
+    `<span class="chip${FEAT_HI.includes(f) ? ' hi' : ''}">${FEAT[f] || f}</span>`
+  ).join('');
+
+  const priceBadge = pr
+    ? `<div class="price-badge">${fmtPrice(pr.weekly_price, pr.currency)}<small>per week</small></div>`
+    : '';
+
+  const desc = p.description
+    ? `<p class="pdesc">${p.description}</p>` : '';
+
+  const waText = encodeURIComponent(
+    `Hi, I saw ${p.name}${pr ? ` (${fmtPrice(pr.weekly_price, pr.currency)}/week)` : ''} on your search tool — could you send me more details?`
+  );
+  const waHref = WHATSAPP_NUMBER
+    ? `https://wa.me/${WHATSAPP_NUMBER}?text=${waText}`
+    : `https://wa.me/?text=${waText}`;
+
+  return `
+<div class="pcard">
+  <div class="pcard-photo">
+    ${photo
+      ? `<img src="${photo}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">`
+      : `<div class="pcard-no-photo">⛰</div>`}
+    ${priceBadge}
+    <div class="type-badge">${p.type || 'property'}</div>
+  </div>
+  <div class="pcard-body">
+    <div class="pcard-name">${p.name}</div>
+    <div class="pcard-loc">📍 ${p.locationLabel || p.location}</div>
+    <div class="stats-row">
+      <div class="stat"><span class="stat-v">${p.bedrooms || '—'}</span><span class="stat-l">Bedrooms</span></div>
+      <div class="stat"><span class="stat-v">${p.capacity || '—'}</span><span class="stat-l">Guests</span></div>
+      ${p.bathrooms ? `<div class="stat"><span class="stat-v">${p.bathrooms}</span><span class="stat-l">Bathrooms</span></div>` : ''}
+      ${pr ? `<div class="stat"><span class="stat-v gold">${fmtPrice(pr.weekly_price, pr.currency)}</span><span class="stat-l">Per week</span></div>` : ''}
+    </div>
+    <div class="chips">${chips}</div>
+    ${desc}
+    <!-- Print contact block -->
+    <div class="print-contact">
+      <strong>${p.name}</strong> — ${p.locationLabel || p.location}
+      ${pr ? `<br>Week price: <strong>${fmtPrice(pr.weekly_price, pr.currency)}</strong>` : ''}<br>
+      📧 ${CONTACT_EMAIL} &nbsp;·&nbsp; 🌐 courchevel.rentals
+    </div>
+    <!-- Screen CTA -->
+    <div class="card-footer no-print">
+      <a href="mailto:${CONTACT_EMAIL}?subject=Enquiry%3A%20${encodeURIComponent(p.name)}" class="cta cta-dark">Email us</a>
+      <a href="${waHref}" class="cta cta-gold" target="_blank">WhatsApp</a>
+    </div>
+  </div>
+</div>`;
+}
+
+// ── Search ────────────────────────────────────────────────────────────────
+async function doSearch(params) {
+  document.getElementById('loading').classList.add('on');
+  document.getElementById('results').classList.remove('on');
+  document.getElementById('searchBtn').disabled = true;
+
+  const qs = new URLSearchParams();
+  if (params.location && params.location !== 'any') qs.set('location', params.location);
+  if (params.checkin) qs.set('checkin', params.checkin);
+  if (params.guests) qs.set('guests', params.guests);
+  if (params.budget_min) qs.set('budget_min', params.budget_min);
+  if (params.budget_max) qs.set('budget_max', params.budget_max);
+  if (params.features?.length) qs.set('features', params.features.join(','));
+  if (params.type && params.type !== 'any') qs.set('type', params.type);
+
+  try {
+    const res = await fetch('/api/search?' + qs);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Search failed');
+    showResults(data, params);
+  } catch (err) {
+    alert('Search error: ' + err.message);
+  } finally {
+    document.getElementById('loading').classList.remove('on');
+    document.getElementById('searchBtn').disabled = false;
+  }
+}
+
+function showResults(data, params) {
+  const { properties, total } = data;
+  const grid = document.getElementById('pgrid');
+
+  document.getElementById('resultsCount').textContent =
+    total === 0 ? 'No properties found'
+    : `${total} propert${total > 1 ? 'ies' : 'y'} found`;
+
+  const summary = buildSummary(params);
+  document.getElementById('summaryBar').textContent = summary || 'All active properties';
+  document.getElementById('printCriteria').textContent = summary;
+
+  if (properties.length === 0) {
+    grid.innerHTML = `
+      <div class="no-results">
+        <div class="icon">🏔</div>
+        <h3>No exact match</h3>
+        <p>Try adjusting your filters — or contact us and we'll find the perfect property for you.</p>
+        <br>
+        <a href="mailto:${CONTACT_EMAIL}" class="cta cta-dark" style="display:inline-block;max-width:220px;padding:11px 24px">
+          Contact us directly
+        </a>
+      </div>`;
+  } else {
+    grid.innerHTML = properties.map(renderCard).join('');
+  }
+
+  document.getElementById('results').classList.add('on');
+  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function resetSearch() {
+  document.getElementById('results').classList.remove('on');
+  document.getElementById('searchCard').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ── Form submit ───────────────────────────────────────────────────────────
+document.getElementById('searchForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const f = e.target;
+  const features = [...f.querySelectorAll('input[name="features"]:checked')].map(cb => cb.value);
+  doSearch({
+    location:   f.location.value,
+    type:       f.type.value,
+    checkin:    f.checkin.value || '',
+    guests:     f.guests.value,
+    budget_min: f.budget_min.value,
+    budget_max: f.budget_max.value,
+    features,
+  });
+});
+</script>
+</body>
+</html>
