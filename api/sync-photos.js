@@ -55,9 +55,15 @@ function xmlGet(block, tag) {
 }
 
 function buildQS(params) {
-  return Object.entries(params)
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
-    .join('&');
+  const parts = [];
+  for (const [k, v] of Object.entries(params)) {
+    if (Array.isArray(v)) {
+      v.forEach(item => parts.push(`${encodeURIComponent(k + '[]')}=${encodeURIComponent(item)}`));
+    } else {
+      parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+    }
+  }
+  return parts.join('&');
 }
 
 async function atPaginate(params) {
