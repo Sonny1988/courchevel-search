@@ -347,11 +347,10 @@ body { font-family: var(--sans); background: #ede9e3; color: var(--text); min-he
             <input type="date" class="finput" name="checkin" id="checkin">
           </div>
 
-          <!-- Check-out (auto-calculated) -->
+          <!-- Check-out -->
           <div class="fgroup">
-            <label class="flabel">Departure <em>(Saturday — auto)</em></label>
-            <input type="date" class="finput" name="checkout" id="checkout" readonly
-              style="background:#f5f0e8;cursor:default;color:#888">
+            <label class="flabel">Departure <em>(Saturday)</em></label>
+            <input type="date" class="finput" name="checkout" id="checkout">
             <span class="fnote" id="dateNote"></span>
           </div>
 
@@ -512,12 +511,25 @@ const checkoutEl = document.getElementById('checkout');
 const dateNoteEl = document.getElementById('dateNote');
 checkinEl.min = new Date().toISOString().slice(0, 10);
 
+function updateDateNote() {
+  const ci = checkinEl.value, co = checkoutEl.value;
+  if (!ci || !co) { dateNoteEl.textContent = ''; return; }
+  const nights = Math.round((new Date(co + 'T12:00:00') - new Date(ci + 'T12:00:00')) / 86400000);
+  dateNoteEl.textContent = nights > 0
+    ? `${nights} nights · ${fmtDate(ci)} → ${fmtDate(co)}`
+    : 'Departure must be after arrival';
+}
+
 checkinEl.addEventListener('change', () => {
-  const sat = toSaturday(checkinEl.value);
-  checkinEl.value  = sat;
-  const dep = addDays(sat, 7);
-  checkoutEl.value = dep;
-  dateNoteEl.textContent = `7 nights · ${fmtDate(sat)} → ${fmtDate(dep)}`;
+  checkinEl.value = toSaturday(checkinEl.value);
+  if (!checkoutEl.value) checkoutEl.value = addDays(checkinEl.value, 7);
+  checkoutEl.min = addDays(checkinEl.value, 7);
+  updateDateNote();
+});
+
+checkoutEl.addEventListener('change', () => {
+  checkoutEl.value = toSaturday(checkoutEl.value);
+  updateDateNote();
 });
 
 // ── Checkbox highlight ────────────────────────────────────────────────────
@@ -538,7 +550,7 @@ function fmtPrice(n, currency) {
 function buildSummary(p) {
   const parts = [];
   if (p.location && p.location !== 'any') parts.push(LOC[p.location] || p.location);
-  if (p.checkin) parts.push(`${fmtDate(p.checkin)} → ${fmtDate(addDays(p.checkin,7))}`);
+  if (p.checkin) parts.push(`${fmtDate(p.checkin)} → ${fmtDate(p.checkout || addDays(p.checkin,7))}`);
   if (p.guests) parts.push(`${p.guests}+ guests`);
   if (p.budget_min && p.budget_max)
     parts.push(`€${p.budget_min/1000|0}k – €${p.budget_max/1000|0}k/wk`);
@@ -680,6 +692,7 @@ document.getElementById('searchForm').addEventListener('submit', e => {
     location:   f.location.value,
     type:       f.type.value,
     checkin:    f.checkin.value || '',
+    checkout:   f.checkout.value || '',
     guests:     f.guests.value,
     budget_min: f.budget_min.value,
     budget_max: f.budget_max.value,
