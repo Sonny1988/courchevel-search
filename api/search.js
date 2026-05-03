@@ -1,7 +1,12 @@
 /**
  * Vercel Serverless Function — /api/search
- * Primary source: Cimalpes API (photos + pricing via ?fonction=infos)
- * Fallback for pricing only: Airtable Pricing table
+ *
+ * Data sources:
+ *   Photos  → Cimalpes ?fonction=biens  (field: photo_web, one per property)
+ *   Pricing → Cimalpes ?fonction=infos  (sejours with date + montant, per property)
+ *   Props   → Airtable Properties table (name, location, bedrooms, etc.)
+ *
+ * Pricing is NEVER sourced from Airtable. Airtable = property metadata only.
  *
  * Required env vars:
  *   AIRTABLE_API_KEY
@@ -18,10 +23,7 @@ const CI_LOGIN = process.env.CIMALPES_LOGIN;
 const CI_PASS  = process.env.CIMALPES_PASS;
 const CI_BASE  = 'https://cimalpes.com/fr/flux/';
 
-const TABLES = {
-  Properties: 'tblnbjvrihjbiQJGq',
-  Pricing:    'tblxGNHlB5weTsJ81',
-};
+const TABLES = { Properties: 'tblnbjvrihjbiQJGq' };
 
 const LOC_LABELS = {
   'courchevel-1850': 'Courchevel 1850',
@@ -40,6 +42,13 @@ function httpGet(url, headers = {}) {
       res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     }).on('error', reject);
   });
+}
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms)),
+  ]);
 }
 
 // ── Airtable helpers ──────────────────────────────────────────────────────────
@@ -73,12 +82,12 @@ async function atPaginate(tableId, params) {
   return records;
 }
 
-// ── Cimalpes XML helpers ──────────────────────────────────────────────────────
+// ── Cimalpes XML helper ───────────────────────────────────────────────────────
 function xmlGet(block, tag) {
-  const cdataMarker = '<' + tag + '><![CDATA[';
-  const idx = block.indexOf(cdataMarker);
+  const marker = '<' + tag + '><![CDATA[';
+  const idx = block.indexOf(marker);
   if (idx !== -1) {
-    const s = idx + cdataMarker.length;
+    const s = idx + marker.length;
     const e = block.indexOf(']]>', s);
     return e === -1 ? '' : block.substring(s, e).trim();
   }
@@ -86,51 +95,55 @@ function xmlGet(block, tag) {
   return m ? m[1].trim() : '';
 }
 
-function extractPhotos(xml) {
-  const pat = /https:\/\/admin\.cimalpes\.com\/photos\/bien\/\d+\/[^\s"'<>\]\[]+/g;
-  const found = [];
-  let m;
-  while ((m = pat.exec(xml)) !== null) {
-    if (!found.includes(m[0])) found.push(m[0]);
-  }
-  return found.slice(0, 8);
-}
-
-// Find the sejour matching the checkin date and return pricing
-function extractPricing(xml, checkin) {
-  const blocks = xml.split('<sejour>').slice(1);
-  for (const block of blocks) {
-    const b = block.split('</sejour>')[0];
-    const debut = xmlGet(b, 'date_debut');
-    if (debut !== checkin) continue;
-    const fin     = xmlGet(b, 'date_fin');
-    const montant = parseFloat(xmlGet(b, 'montant')) || 0;
-    const etat    = xmlGet(b, 'etat_reservation');
-    if (montant > 0 && etat === 'libre') {
-      return { checkin: debut, checkout: fin, weekly_price: montant, currency: 'EUR' };
+// ── Cimalpes: photo map from ?fonction=biens ──────────────────────────────────
+// Returns { cimalpes_id (string) → photo_url (string) }
+async function fetchPhotoMap() {
+  if (!CI_LOGIN || !CI_PASS) return {};
+  try {
+    const url = `${CI_BASE}?fonction=biens`
+      + `&login=${encodeURIComponent(CI_LOGIN)}`
+      + `&pass=${encodeURIComponent(CI_PASS)}`;
+    const xml = await withTimeout(httpGet(url), 15000);
+    const map = {};
+    const blocks = xml.split('<bien>').slice(1);
+    for (const block of blocks) {
+      const b = block.split('</bien>')[0];
+      const id    = xmlGet(b, 'id_bien');
+      const photo = xmlGet(b, 'photo_web');
+      if (id && photo) map[id] = photo;
     }
+    return map;
+  } catch (e) {
+    console.error('fetchPhotoMap failed:', e.message);
+    return {};
   }
-  return null;
 }
 
-// Fetch photos + pricing from Cimalpes infos endpoint (single call)
-async function getCimalepesData(cimalpes_id, checkin) {
-  if (!cimalpes_id || !CI_LOGIN || !CI_PASS) return { photos: [], pricing: null };
+// ── Cimalpes: pricing from ?fonction=infos ────────────────────────────────────
+// Returns { checkin, checkout, weekly_price, currency } or null
+async function fetchPricing(cimalpes_id, checkin) {
+  if (!cimalpes_id || !checkin || !CI_LOGIN || !CI_PASS) return null;
   try {
     const url = `${CI_BASE}?fonction=infos`
       + `&login=${encodeURIComponent(CI_LOGIN)}`
       + `&pass=${encodeURIComponent(CI_PASS)}`
       + `&id_bien=${cimalpes_id}`;
-    const xml = await Promise.race([
-      httpGet(url),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
-    ]);
-    return {
-      photos:  extractPhotos(xml),
-      pricing: checkin ? extractPricing(xml, checkin) : null,
-    };
+    const xml = await withTimeout(httpGet(url), 8000);
+    const blocks = xml.split('<sejour>').slice(1);
+    for (const block of blocks) {
+      const b      = block.split('</sejour>')[0];
+      const debut  = xmlGet(b, 'date_debut');
+      if (debut !== checkin) continue;
+      const fin     = xmlGet(b, 'date_fin');
+      const montant = parseFloat(xmlGet(b, 'montant')) || 0;
+      const etat    = xmlGet(b, 'etat_reservation');
+      if (montant > 0 && etat === 'libre') {
+        return { checkin: debut, checkout: fin, weekly_price: montant, currency: 'EUR' };
+      }
+    }
+    return null;
   } catch {
-    return { photos: [], pricing: null };
+    return null;
   }
 }
 
@@ -148,46 +161,44 @@ module.exports = async function handler(req, res) {
     // ── Properties filter ─────────────────────────────────────────────────
     const pf = ["{status}='active'"];
     if (location && location !== 'any') pf.push(`{location}='${location}'`);
-    if (guests && parseInt(guests) > 0) pf.push(`{capacity}>=${parseInt(guests)}`);
-    if (type   && type !== 'any')       pf.push(`{type}='${type}'`);
+    if (guests && parseInt(guests) > 0)  pf.push(`{capacity}>=${parseInt(guests)}`);
+    if (type   && type !== 'any')        pf.push(`{type}='${type}'`);
     const featList = features ? features.split(',').filter(Boolean) : [];
     for (const f of featList) {
       pf.push(`FIND('${f.replace(/'/g,"\\'")}',ARRAYJOIN({features},','))>0`);
     }
     const propFormula = pf.length > 1 ? `AND(${pf.join(',')})` : pf[0] || '1';
 
-    // ── Fetch Properties from Airtable ────────────────────────────────────
-    let propRecords = [];
-    try {
-      propRecords = await atPaginate(TABLES.Properties, {
+    // ── Parallel: Cimalpes biens (photos) + Airtable Properties ──────────
+    const [photoMap, propRecords] = await Promise.all([
+      fetchPhotoMap(),
+      atPaginate(TABLES.Properties, {
         filterByFormula: propFormula,
         fields: ['name', 'type', 'location', 'bedrooms', 'bathrooms', 'capacity',
                  'features', 'cimalpes_id', 'description_en'],
         maxRecords: 100,
-      });
-    } catch (e) { console.error('Properties query failed:', e.message); }
+      }).catch(e => { console.error('Properties failed:', e.message); return []; }),
+    ]);
 
     // Sort alphabetically, take first 20
     propRecords.sort((a, b) => (a.fields.name || '').localeCompare(b.fields.name || ''));
     const results = propRecords.slice(0, 20);
 
-    // ── Fetch Cimalpes data (photos + pricing) in parallel ────────────────
-    // Primary source: Cimalpes API. One call per property gets both.
-    const cimalepesData = await Promise.all(
-      results.map(r => getCimalepesData(r.fields.cimalpes_id || null, checkin || null))
+    // ── Fetch pricing from Cimalpes infos (per property, in parallel) ─────
+    const pricingList = await Promise.all(
+      results.map(r => fetchPricing(r.fields.cimalpes_id || null, checkin || null))
     );
 
     // ── Build response ────────────────────────────────────────────────────
-    // Pricing comes exclusively from Cimalpes. Airtable has no pricing role.
     let properties = results.map((r, i) => {
-      const f  = r.fields;
-      const cd = cimalepesData[i];
-      const pricing = cd.pricing || null;
+      const f      = r.fields;
+      const photo  = photoMap[f.cimalpes_id] || null;
+      const pricing = pricingList[i] || null;
 
-      // Apply budget filter against actual pricing
+      // Budget filter (only when pricing is known)
       const price = pricing ? pricing.weekly_price : null;
-      if (budget_min && parseInt(budget_min) > 0 && price && price < parseInt(budget_min)) return null;
-      if (budget_max && parseInt(budget_max) > 0 && price && price > parseInt(budget_max)) return null;
+      if (budget_min && parseInt(budget_min) > 0 && price !== null && price < parseInt(budget_min)) return null;
+      if (budget_max && parseInt(budget_max) > 0 && price !== null && price > parseInt(budget_max)) return null;
 
       return {
         id:            r.id,
@@ -201,12 +212,12 @@ module.exports = async function handler(req, res) {
         features:      f.features  || [],
         description:   f.description_en || '',
         cimalpes_id:   f.cimalpes_id || null,
-        photos:        cd.photos,
+        photos:        photo ? [photo] : [],
         pricing,
       };
     }).filter(Boolean);
 
-    // Sort: priced properties first (cheapest → most expensive), then unpriced
+    // Sort: priced first (cheapest → most expensive), then unpriced alphabetically
     properties.sort((a, b) => {
       if (a.pricing && b.pricing) return a.pricing.weekly_price - b.pricing.weekly_price;
       if (a.pricing) return -1;
