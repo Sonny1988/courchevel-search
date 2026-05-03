@@ -241,6 +241,8 @@ body { font-family: var(--sans); background: #ede9e3; color: var(--text); min-he
 .cta-dark:hover { background: var(--navy2); }
 .cta-gold { background: var(--gold); color: var(--navy); font-weight: 700; }
 .cta-gold:hover { background: #b8904d; }
+.cta-sheet { background: transparent; color: var(--navy); border: 1px solid var(--cream2); cursor: pointer; font-family: inherit; }
+.cta-sheet:hover { background: var(--cream); }
 
 /* Print-only contact (hidden on screen) */
 .print-contact { display: none; }
@@ -668,7 +670,8 @@ function renderCard(p) {
     </div>
     <!-- Screen CTA -->
     <div class="card-footer no-print">
-      <a href="mailto:${CONTACT_EMAIL}?subject=Enquiry%3A%20${encodeURIComponent(p.name)}" class="cta cta-dark">Email us</a>
+      <a href="https://courchevel.rentals/properties/${p.id}" class="cta cta-sheet" target="_blank">View details</a>
+      <a href="mailto:${CONTACT_EMAIL}?subject=Enquiry%3A%20${encodeURIComponent(p.name)}" class="cta cta-dark">Email</a>
       <a href="${waHref}" class="cta cta-gold" target="_blank">WhatsApp</a>
     </div>
   </div>
