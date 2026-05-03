@@ -136,7 +136,7 @@ module.exports = async function handler(req, res) {
       atPaginate(TABLES.Properties, {
         filterByFormula: propFormula,
         fields: ['name', 'type', 'location', 'bedrooms', 'bathrooms', 'capacity',
-                 'features', 'images', 'cimalpes_id', 'description_en'],
+                 'features', 'cimalpes_id', 'description_en'],
         maxRecords: 100,
       }),
       checkin
@@ -178,24 +178,10 @@ module.exports = async function handler(req, res) {
 
     results = results.slice(0, 20);
 
-    // ── Fetch photos ──────────────────────────────────────────────────────
-    // Use Airtable attachment URLs if available, otherwise call Cimalpes API
-    const photoPromises = results.map(r => {
-      const f = r.fields;
-      if (f.images && f.images.length > 0) {
-        return Promise.resolve(
-          f.images.slice(0, 6).map(img =>
-            (img.thumbnails && img.thumbnails.large)
-              ? img.thumbnails.large.url
-              : img.url
-          )
-        );
-      }
-      if (f.cimalpes_id) {
-        return getCimalepesPhotos(f.cimalpes_id);
-      }
-      return Promise.resolve([]);
-    });
+    // ── Fetch photos via Cimalpes API ─────────────────────────────────────
+    const photoPromises = results.map(r =>
+      r.fields.cimalpes_id ? getCimalepesPhotos(r.fields.cimalpes_id) : Promise.resolve([])
+    );
 
     const allPhotos = await Promise.all(photoPromises);
 

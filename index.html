@@ -343,8 +343,15 @@ body { font-family: var(--sans); background: #ede9e3; color: var(--text); min-he
 
           <!-- Check-in -->
           <div class="fgroup">
-            <label class="flabel">Arrival date <em>(Saturday to Saturday)</em></label>
+            <label class="flabel">Arrival <em>(Saturday)</em></label>
             <input type="date" class="finput" name="checkin" id="checkin">
+          </div>
+
+          <!-- Check-out (auto-calculated) -->
+          <div class="fgroup">
+            <label class="flabel">Departure <em>(Saturday — auto)</em></label>
+            <input type="date" class="finput" name="checkout" id="checkout" readonly
+              style="background:#f5f0e8;cursor:default;color:#888">
             <span class="fnote" id="dateNote"></span>
           </div>
 
@@ -499,15 +506,18 @@ function fmtDate(iso) {
     { day:'numeric', month:'short', year:'numeric' });
 }
 
-// Saturday-only date picker
-const checkinEl = document.getElementById('checkin');
+// Saturday-only date picker + auto-fill departure
+const checkinEl  = document.getElementById('checkin');
+const checkoutEl = document.getElementById('checkout');
 const dateNoteEl = document.getElementById('dateNote');
 checkinEl.min = new Date().toISOString().slice(0, 10);
 
 checkinEl.addEventListener('change', () => {
   const sat = toSaturday(checkinEl.value);
-  checkinEl.value = sat;
-  dateNoteEl.textContent = `Departure: Saturday ${fmtDate(addDays(sat, 7))}`;
+  checkinEl.value  = sat;
+  const dep = addDays(sat, 7);
+  checkoutEl.value = dep;
+  dateNoteEl.textContent = `7 nights · ${fmtDate(sat)} → ${fmtDate(dep)}`;
 });
 
 // ── Checkbox highlight ────────────────────────────────────────────────────
