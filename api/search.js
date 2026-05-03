@@ -102,7 +102,7 @@ function normalizeDate(s) {
   return dmy ? `${dmy[3]}-${dmy[2]}-${dmy[1]}` : s.trim();
 }
 
-// ── Cimalpes: photo map from ?fonction=biens ──────────────────────────────────
+// ── Cimalpes: photo map from ?fonction=biens (full feed) ─────────────────────
 // Returns { cimalpes_id (string) → photo_url (string) }
 async function fetchPhotoMap() {
   if (!CI_LOGIN || !CI_PASS) return {};
@@ -123,6 +123,29 @@ async function fetchPhotoMap() {
   } catch (e) {
     console.error('fetchPhotoMap failed:', e.message);
     return {};
+  }
+}
+
+// ── Cimalpes: single-property photo fallback via ?fonction=biens&id_bien=XXX ─
+// Used for properties not returned by the global biens feed.
+async function fetchOnePhoto(cimalpes_id) {
+  if (!cimalpes_id || !CI_LOGIN || !CI_PASS) return null;
+  try {
+    const url = `${CI_BASE}?fonction=biens`
+      + `&login=${encodeURIComponent(CI_LOGIN)}`
+      + `&pass=${encodeURIComponent(CI_PASS)}`
+      + `&id_bien=${encodeURIComponent(cimalpes_id)}`;
+    const xml = await withTimeout(httpGet(url), 8000);
+    const blocks = xml.split('<bien>').slice(1);
+    for (const block of blocks) {
+      const b     = block.split('</bien>')[0];
+      const id    = xmlGet(b, 'id_bien');
+      const photo = xmlGet(b, 'photo_web');
+      if (id && id.trim() === cimalpes_id.toString().trim() && photo) return photo.trim();
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -191,16 +214,20 @@ module.exports = async function handler(req, res) {
     propRecords.sort((a, b) => (a.fields.name || '').localeCompare(b.fields.name || ''));
     const results = propRecords.slice(0, 20);
 
-    // ── Fetch pricing from Cimalpes infos (per property, in parallel) ─────
-    const pricingList = await Promise.all(
-      results.map(r => fetchPricing(r.fields.cimalpes_id || null, checkin || null))
-    );
+    // ── Fetch pricing + fallback photos in parallel ───────────────────────
+    const [pricingList, fallbackPhotos] = await Promise.all([
+      Promise.all(results.map(r => fetchPricing(r.fields.cimalpes_id || null, checkin || null))),
+      Promise.all(results.map(r => {
+        const cId = (r.fields.cimalpes_id || '').toString().trim();
+        return photoMap[cId] ? Promise.resolve(null) : fetchOnePhoto(cId);
+      })),
+    ]);
 
     // ── Build response ────────────────────────────────────────────────────
     let properties = results.map((r, i) => {
       const f      = r.fields;
       const cId    = (f.cimalpes_id || '').toString().trim();
-      const photo  = photoMap[cId] || null;
+      const photo  = photoMap[cId] || fallbackPhotos[i] || null;
       const pricing = pricingList[i] || null;
 
       // Budget filter (only when pricing is known)
