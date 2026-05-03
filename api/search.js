@@ -177,37 +177,12 @@ module.exports = async function handler(req, res) {
       results.map(r => getCimalepesData(r.fields.cimalpes_id || null, checkin || null))
     );
 
-    // ── Airtable Pricing fallback for properties without Cimalpes pricing ─
-    let fallbackMap = {};
-    if (checkin) {
-      try {
-        const prF = ["{status}='available'", `{checkin}='${checkin}'`];
-        const pricingRecords = await atPaginate(TABLES.Pricing, {
-          filterByFormula: `AND(${prF.join(',')})`,
-          fields: ['property', 'checkin', 'checkout', 'weekly_price', 'currency'],
-          maxRecords: 300,
-        });
-        for (const r of pricingRecords) {
-          for (const pid of (r.fields.property || [])) {
-            if (!fallbackMap[pid]) {
-              fallbackMap[pid] = {
-                checkin:      r.fields.checkin,
-                checkout:     r.fields.checkout,
-                weekly_price: r.fields.weekly_price,
-                currency:     r.fields.currency || 'EUR',
-              };
-            }
-          }
-        }
-      } catch (e) { console.error('Pricing fallback failed:', e.message); }
-    }
-
     // ── Build response ────────────────────────────────────────────────────
+    // Pricing comes exclusively from Cimalpes. Airtable has no pricing role.
     let properties = results.map((r, i) => {
       const f  = r.fields;
       const cd = cimalepesData[i];
-      // Cimalpes pricing wins; Airtable is fallback only
-      const pricing = cd.pricing || fallbackMap[r.id] || null;
+      const pricing = cd.pricing || null;
 
       // Apply budget filter against actual pricing
       const price = pricing ? pricing.weekly_price : null;
