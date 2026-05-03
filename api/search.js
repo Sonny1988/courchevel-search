@@ -1,6 +1,7 @@
 /**
  * Vercel Serverless Function — /api/search
- * Queries Airtable (properties + pricing) and Cimalpes (photos)
+ * Primary source: Cimalpes API (photos + pricing via ?fonction=infos)
+ * Fallback for pricing only: Airtable Pricing table
  *
  * Required env vars:
  *   AIRTABLE_API_KEY
@@ -11,8 +12,8 @@
 
 const https = require('https');
 
-const AT_KEY  = process.env.AIRTABLE_API_KEY;
-const AT_BASE = process.env.AIRTABLE_BASE_ID || 'app1gxPAbJp8AzH3i';
+const AT_KEY   = process.env.AIRTABLE_API_KEY;
+const AT_BASE  = process.env.AIRTABLE_BASE_ID || 'app1gxPAbJp8AzH3i';
 const CI_LOGIN = process.env.CIMALPES_LOGIN;
 const CI_PASS  = process.env.CIMALPES_PASS;
 const CI_BASE  = 'https://cimalpes.com/fr/flux/';
@@ -30,7 +31,7 @@ const LOC_LABELS = {
   'le-praz':         'Le Praz',
 };
 
-// ── HTTP helpers ──────────────────────────────────────────────────────────────
+// ── HTTP helper ───────────────────────────────────────────────────────────────
 function httpGet(url, headers = {}) {
   return new Promise((resolve, reject) => {
     https.get(url, { headers }, res => {
@@ -41,7 +42,7 @@ function httpGet(url, headers = {}) {
   });
 }
 
-// ── Airtable ──────────────────────────────────────────────────────────────────
+// ── Airtable helpers ──────────────────────────────────────────────────────────
 function buildQS(params) {
   const parts = [];
   for (const [k, v] of Object.entries(params)) {
@@ -72,29 +73,64 @@ async function atPaginate(tableId, params) {
   return records;
 }
 
-// ── Cimalpes photo extraction ─────────────────────────────────────────────────
+// ── Cimalpes XML helpers ──────────────────────────────────────────────────────
+function xmlGet(block, tag) {
+  const cdataMarker = '<' + tag + '><![CDATA[';
+  const idx = block.indexOf(cdataMarker);
+  if (idx !== -1) {
+    const s = idx + cdataMarker.length;
+    const e = block.indexOf(']]>', s);
+    return e === -1 ? '' : block.substring(s, e).trim();
+  }
+  const m = block.match(new RegExp('<' + tag + '>([^<]*)</' + tag + '>'));
+  return m ? m[1].trim() : '';
+}
+
 function extractPhotos(xml) {
-  // Match any URL on admin.cimalpes.com/photos/bien/
   const pat = /https:\/\/admin\.cimalpes\.com\/photos\/bien\/\d+\/[^\s"'<>\]\[]+/g;
   const found = [];
   let m;
   while ((m = pat.exec(xml)) !== null) {
     if (!found.includes(m[0])) found.push(m[0]);
   }
-  return found.slice(0, 6);
+  return found.slice(0, 8);
 }
 
-async function getCimalepesPhotos(cimalpes_id) {
-  if (!cimalpes_id || !CI_LOGIN || !CI_PASS) return [];
+// Find the sejour matching the checkin date and return pricing
+function extractPricing(xml, checkin) {
+  const blocks = xml.split('<sejour>').slice(1);
+  for (const block of blocks) {
+    const b = block.split('</sejour>')[0];
+    const debut = xmlGet(b, 'date_debut');
+    if (debut !== checkin) continue;
+    const fin     = xmlGet(b, 'date_fin');
+    const montant = parseFloat(xmlGet(b, 'montant')) || 0;
+    const etat    = xmlGet(b, 'etat_reservation');
+    if (montant > 0 && etat === 'libre') {
+      return { checkin: debut, checkout: fin, weekly_price: montant, currency: 'EUR' };
+    }
+  }
+  return null;
+}
+
+// Fetch photos + pricing from Cimalpes infos endpoint (single call)
+async function getCimalepesData(cimalpes_id, checkin) {
+  if (!cimalpes_id || !CI_LOGIN || !CI_PASS) return { photos: [], pricing: null };
   try {
-    const url = `${CI_BASE}?fonction=infos&login=${encodeURIComponent(CI_LOGIN)}&pass=${encodeURIComponent(CI_PASS)}&id_bien=${cimalpes_id}`;
+    const url = `${CI_BASE}?fonction=infos`
+      + `&login=${encodeURIComponent(CI_LOGIN)}`
+      + `&pass=${encodeURIComponent(CI_PASS)}`
+      + `&id_bien=${cimalpes_id}`;
     const xml = await Promise.race([
       httpGet(url),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000)),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 8000)),
     ]);
-    return extractPhotos(xml);
+    return {
+      photos:  extractPhotos(xml),
+      pricing: checkin ? extractPricing(xml, checkin) : null,
+    };
   } catch {
-    return [];
+    return { photos: [], pricing: null };
   }
 }
 
@@ -109,32 +145,19 @@ module.exports = async function handler(req, res) {
   const { location, checkin, guests, budget_min, budget_max, features, type } = req.query;
 
   try {
-    // ── Build Properties filter ───────────────────────────────────────────
+    // ── Properties filter ─────────────────────────────────────────────────
     const pf = ["{status}='active'"];
     if (location && location !== 'any') pf.push(`{location}='${location}'`);
-    if (guests   && parseInt(guests) > 0) pf.push(`{capacity}>=${parseInt(guests)}`);
-    if (type     && type !== 'any')       pf.push(`{type}='${type}'`);
-
+    if (guests && parseInt(guests) > 0) pf.push(`{capacity}>=${parseInt(guests)}`);
+    if (type   && type !== 'any')       pf.push(`{type}='${type}'`);
     const featList = features ? features.split(',').filter(Boolean) : [];
     for (const f of featList) {
-      // Escape single quotes in feature value just in case
       pf.push(`FIND('${f.replace(/'/g,"\\'")}',ARRAYJOIN({features},','))>0`);
     }
-
     const propFormula = pf.length > 1 ? `AND(${pf.join(',')})` : pf[0] || '1';
 
-    // ── Build Pricing filter ──────────────────────────────────────────────
-    const prF = ["{status}='available'"];
-    if (checkin)    prF.push(`{checkin}='${checkin}'`);
-    if (budget_min && parseInt(budget_min) > 0) prF.push(`{weekly_price}>=${parseInt(budget_min)}`);
-    if (budget_max && parseInt(budget_max) > 0) prF.push(`{weekly_price}<=${parseInt(budget_max)}`);
-
-    const pricingFormula = `AND(${prF.join(',')})`;
-
-    // ── Fetch Airtable — independent error handling so one failure never blocks the other
-    let propRecords = [], pricingRecords = [];
-    let _propErr = null, _priceErr = null;
-
+    // ── Fetch Properties from Airtable ────────────────────────────────────
+    let propRecords = [];
     try {
       propRecords = await atPaginate(TABLES.Properties, {
         filterByFormula: propFormula,
@@ -142,56 +165,55 @@ module.exports = async function handler(req, res) {
                  'features', 'cimalpes_id', 'description_en'],
         maxRecords: 100,
       });
-    } catch (e) { _propErr = e.message; }
+    } catch (e) { console.error('Properties query failed:', e.message); }
 
+    // Sort alphabetically, take first 20
+    propRecords.sort((a, b) => (a.fields.name || '').localeCompare(b.fields.name || ''));
+    const results = propRecords.slice(0, 20);
+
+    // ── Fetch Cimalpes data (photos + pricing) in parallel ────────────────
+    // Primary source: Cimalpes API. One call per property gets both.
+    const cimalepesData = await Promise.all(
+      results.map(r => getCimalepesData(r.fields.cimalpes_id || null, checkin || null))
+    );
+
+    // ── Airtable Pricing fallback for properties without Cimalpes pricing ─
+    let fallbackMap = {};
     if (checkin) {
       try {
-        pricingRecords = await atPaginate(TABLES.Pricing, {
-          filterByFormula: pricingFormula,
+        const prF = ["{status}='available'", `{checkin}='${checkin}'`];
+        const pricingRecords = await atPaginate(TABLES.Pricing, {
+          filterByFormula: `AND(${prF.join(',')})`,
           fields: ['property', 'checkin', 'checkout', 'weekly_price', 'currency'],
           maxRecords: 300,
         });
-      } catch (e) { _priceErr = e.message; }
-    }
-
-    // ── Build pricing map: propertyId → pricing ───────────────────────────
-    const pricingMap = {};
-    for (const r of pricingRecords) {
-      for (const pid of (r.fields.property || [])) {
-        if (!pricingMap[pid]) {
-          pricingMap[pid] = {
-            checkin:      r.fields.checkin,
-            checkout:     r.fields.checkout,
-            weekly_price: r.fields.weekly_price,
-            currency:     r.fields.currency || 'EUR',
-          };
+        for (const r of pricingRecords) {
+          for (const pid of (r.fields.property || [])) {
+            if (!fallbackMap[pid]) {
+              fallbackMap[pid] = {
+                checkin:      r.fields.checkin,
+                checkout:     r.fields.checkout,
+                weekly_price: r.fields.weekly_price,
+                currency:     r.fields.currency || 'EUR',
+              };
+            }
+          }
         }
-      }
+      } catch (e) { console.error('Pricing fallback failed:', e.message); }
     }
-
-    // ── Sort: properties with confirmed pricing first, then others ────────
-    let results = propRecords;
-
-    results.sort((a, b) => {
-      const pa = pricingMap[a.id], pb = pricingMap[b.id];
-      if (pa && pb) return pa.weekly_price - pb.weekly_price;
-      if (pa) return -1;
-      if (pb) return 1;
-      return (a.fields.name || '').localeCompare(b.fields.name || '');
-    });
-
-    results = results.slice(0, 20);
-
-    // ── Fetch photos via Cimalpes API ─────────────────────────────────────
-    const photoPromises = results.map(r =>
-      r.fields.cimalpes_id ? getCimalepesPhotos(r.fields.cimalpes_id) : Promise.resolve([])
-    );
-
-    const allPhotos = await Promise.all(photoPromises);
 
     // ── Build response ────────────────────────────────────────────────────
-    const properties = results.map((r, i) => {
-      const f = r.fields;
+    let properties = results.map((r, i) => {
+      const f  = r.fields;
+      const cd = cimalepesData[i];
+      // Cimalpes pricing wins; Airtable is fallback only
+      const pricing = cd.pricing || fallbackMap[r.id] || null;
+
+      // Apply budget filter against actual pricing
+      const price = pricing ? pricing.weekly_price : null;
+      if (budget_min && parseInt(budget_min) > 0 && price && price < parseInt(budget_min)) return null;
+      if (budget_max && parseInt(budget_max) > 0 && price && price > parseInt(budget_max)) return null;
+
       return {
         id:            r.id,
         name:          f.name || 'Property',
@@ -204,13 +226,20 @@ module.exports = async function handler(req, res) {
         features:      f.features  || [],
         description:   f.description_en || '',
         cimalpes_id:   f.cimalpes_id || null,
-        photos:        allPhotos[i] || [],
-        pricing:       pricingMap[r.id] || null,
+        photos:        cd.photos,
+        pricing,
       };
+    }).filter(Boolean);
+
+    // Sort: priced properties first (cheapest → most expensive), then unpriced
+    properties.sort((a, b) => {
+      if (a.pricing && b.pricing) return a.pricing.weekly_price - b.pricing.weekly_price;
+      if (a.pricing) return -1;
+      if (b.pricing) return 1;
+      return a.name.localeCompare(b.name);
     });
 
-    return res.status(200).json({ properties, total: properties.length,
-      _debug: { propCount: propRecords.length, pricingCount: pricingRecords.length, _propErr, _priceErr } });
+    return res.status(200).json({ properties, total: properties.length });
 
   } catch (err) {
     console.error('Search error:', err);
