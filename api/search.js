@@ -131,22 +131,28 @@ module.exports = async function handler(req, res) {
 
     const pricingFormula = `AND(${prF.join(',')})`;
 
-    // ── Fetch Airtable in parallel ────────────────────────────────────────
-    const [propRecords, pricingRecords] = await Promise.all([
-      atPaginate(TABLES.Properties, {
+    // ── Fetch Airtable — independent error handling so one failure never blocks the other
+    let propRecords = [], pricingRecords = [];
+    let _propErr = null, _priceErr = null;
+
+    try {
+      propRecords = await atPaginate(TABLES.Properties, {
         filterByFormula: propFormula,
         fields: ['name', 'type', 'location', 'bedrooms', 'bathrooms', 'capacity',
                  'features', 'cimalpes_id', 'description_en'],
         maxRecords: 100,
-      }),
-      checkin
-        ? atPaginate(TABLES.Pricing, {
-            filterByFormula: pricingFormula,
-            fields: ['property', 'checkin', 'checkout', 'weekly_price', 'currency'],
-            maxRecords: 300,
-          })
-        : Promise.resolve([]),
-    ]);
+      });
+    } catch (e) { _propErr = e.message; }
+
+    if (checkin) {
+      try {
+        pricingRecords = await atPaginate(TABLES.Pricing, {
+          filterByFormula: pricingFormula,
+          fields: ['property', 'checkin', 'checkout', 'weekly_price', 'currency'],
+          maxRecords: 300,
+        });
+      } catch (e) { _priceErr = e.message; }
+    }
 
     // ── Build pricing map: propertyId → pricing ───────────────────────────
     const pricingMap = {};
@@ -203,7 +209,8 @@ module.exports = async function handler(req, res) {
       };
     });
 
-    return res.status(200).json({ properties, total: properties.length });
+    return res.status(200).json({ properties, total: properties.length,
+      _debug: { propCount: propRecords.length, pricingCount: pricingRecords.length, _propErr, _priceErr } });
 
   } catch (err) {
     console.error('Search error:', err);
