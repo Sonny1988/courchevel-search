@@ -163,10 +163,8 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    // ── Filter and sort ───────────────────────────────────────────────────
-    let results = checkin
-      ? propRecords.filter(r => pricingMap[r.id])
-      : propRecords;
+    // ── Sort: properties with confirmed pricing first, then others ────────
+    let results = propRecords;
 
     results.sort((a, b) => {
       const pa = pricingMap[a.id], pb = pricingMap[b.id];

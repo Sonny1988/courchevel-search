@@ -560,7 +560,7 @@ function renderCard(p) {
 
   const priceBadge = pr
     ? `<div class="price-badge">${fmtPrice(pr.weekly_price, pr.currency)}<small>per week</small></div>`
-    : '';
+    : `<div class="price-badge" style="font-size:11px;padding:6px 10px">Price<small>on request</small></div>`;
 
   const desc = p.description
     ? `<p class="pdesc">${p.description}</p>` : '';
@@ -588,7 +588,7 @@ function renderCard(p) {
       <div class="stat"><span class="stat-v">${p.bedrooms || '—'}</span><span class="stat-l">Bedrooms</span></div>
       <div class="stat"><span class="stat-v">${p.capacity || '—'}</span><span class="stat-l">Guests</span></div>
       ${p.bathrooms ? `<div class="stat"><span class="stat-v">${p.bathrooms}</span><span class="stat-l">Bathrooms</span></div>` : ''}
-      ${pr ? `<div class="stat"><span class="stat-v gold">${fmtPrice(pr.weekly_price, pr.currency)}</span><span class="stat-l">Per week</span></div>` : ''}
+      ${pr ? `<div class="stat"><span class="stat-v gold">${fmtPrice(pr.weekly_price, pr.currency)}</span><span class="stat-l">Per week</span></div>` : `<div class="stat"><span class="stat-v" style="font-size:11px">On request</span><span class="stat-l">Price</span></div>`}
     </div>
     <div class="chips">${chips}</div>
     ${desc}
