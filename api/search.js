@@ -95,6 +95,13 @@ function xmlGet(block, tag) {
   return m ? m[1].trim() : '';
 }
 
+// Normalize date to YYYY-MM-DD (handles both YYYY-MM-DD and DD/MM/YYYY from Cimalpes)
+function normalizeDate(s) {
+  if (!s) return '';
+  const dmy = s.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return dmy ? `${dmy[3]}-${dmy[2]}-${dmy[1]}` : s.trim();
+}
+
 // ── Cimalpes: photo map from ?fonction=biens ──────────────────────────────────
 // Returns { cimalpes_id (string) → photo_url (string) }
 async function fetchPhotoMap() {
@@ -110,7 +117,7 @@ async function fetchPhotoMap() {
       const b = block.split('</bien>')[0];
       const id    = xmlGet(b, 'id_bien');
       const photo = xmlGet(b, 'photo_web');
-      if (id && photo) map[id] = photo;
+      if (id && photo) map[id.trim()] = photo.trim();
     }
     return map;
   } catch (e) {
@@ -132,7 +139,7 @@ async function fetchPricing(cimalpes_id, checkin) {
     const blocks = xml.split('<sejour>').slice(1);
     for (const block of blocks) {
       const b      = block.split('</sejour>')[0];
-      const debut  = xmlGet(b, 'date_debut');
+      const debut  = normalizeDate(xmlGet(b, 'date_debut'));
       if (debut !== checkin) continue;
       const fin     = xmlGet(b, 'date_fin');
       const montant = parseFloat(xmlGet(b, 'montant')) || 0;
@@ -192,7 +199,8 @@ module.exports = async function handler(req, res) {
     // ── Build response ────────────────────────────────────────────────────
     let properties = results.map((r, i) => {
       const f      = r.fields;
-      const photo  = photoMap[f.cimalpes_id] || null;
+      const cId    = (f.cimalpes_id || '').toString().trim();
+      const photo  = photoMap[cId] || null;
       const pricing = pricingList[i] || null;
 
       // Budget filter (only when pricing is known)

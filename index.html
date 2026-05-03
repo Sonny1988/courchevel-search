@@ -157,11 +157,35 @@ body { font-family: var(--sans); background: #ede9e3; color: var(--text); min-he
   position: relative; aspect-ratio: 16/10; overflow: hidden;
   background: linear-gradient(135deg, #0a1628 0%, #1a3a5c 50%, #2d6a9f 100%);
 }
-.pcard-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pcard-no-photo {
   display: flex; align-items: center; justify-content: center;
   height: 100%; color: rgba(255,255,255,.15); font-size: 52px;
 }
+
+/* ── Carousel ──────────────────────────────────────────────────────────────── */
+.c-track { position: absolute; inset: 0; }
+.c-slide { position: absolute; inset: 0; }
+.c-slide.c-hidden { display: none; }
+.c-slide img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.c-btn {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  background: rgba(0,0,0,.52); color: #fff; border: none;
+  width: 30px; height: 30px; border-radius: 50%; font-size: 20px; line-height: 1;
+  cursor: pointer; z-index: 5; display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px); padding: 0; opacity: .85; transition: opacity .15s;
+}
+.c-btn:hover { opacity: 1; background: rgba(0,0,0,.78); }
+.c-prev { left: 8px; }
+.c-next { right: 8px; }
+.c-dots {
+  position: absolute; bottom: 9px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 5px; z-index: 5;
+}
+.c-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(255,255,255,.4); transition: background .2s;
+}
+.c-dot.on { background: #fff; }
 
 .price-badge {
   position: absolute; top: 12px; right: 12px;
@@ -262,6 +286,9 @@ body { font-family: var(--sans); background: #ede9e3; color: var(--text); min-he
     aspect-ratio: unset; height: 70mm;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
+  .c-btn, .c-dots { display: none !important; }
+  .c-slide.c-hidden { display: none !important; }
+  .c-slide img { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .price-badge, .type-badge {
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
@@ -561,9 +588,25 @@ function buildSummary(p) {
   return parts.join(' · ');
 }
 
+// ── Carousel nav ─────────────────────────────────────────────────────────────
+function carouselNav(btn, dir) {
+  const wrap = btn.closest('.pcard-photo');
+  const total = parseInt(wrap.dataset.total || '0');
+  if (total <= 1) return;
+  const slides = wrap.querySelectorAll('.c-slide');
+  const dots   = wrap.querySelectorAll('.c-dot');
+  let idx = parseInt(wrap.dataset.idx || '0');
+  slides[idx].classList.add('c-hidden');
+  dots[idx]?.classList.remove('on');
+  idx = (idx + dir + total) % total;
+  slides[idx].classList.remove('c-hidden');
+  dots[idx]?.classList.add('on');
+  wrap.dataset.idx = idx;
+}
+
 // ── Render one property card ──────────────────────────────────────────────
 function renderCard(p) {
-  const photo = p.photos?.[0] || null;
+  const photos = p.photos || [];
   const pr = p.pricing;
 
   const chips = (p.features || []).slice(0, 6).map(f =>
@@ -584,12 +627,25 @@ function renderCard(p) {
     ? `https://wa.me/${WHATSAPP_NUMBER}?text=${waText}`
     : `https://wa.me/?text=${waText}`;
 
+  // Build photo carousel (0, 1, or many photos)
+  let mediaInner;
+  if (photos.length === 0) {
+    mediaInner = `<div class="pcard-no-photo">⛰</div>`;
+  } else {
+    const slides = photos.map((url, i) =>
+      `<div class="c-slide${i > 0 ? ' c-hidden' : ''}"><img src="${url}" alt="${p.name}" loading="lazy" onerror="this.parentNode.style.display='none'"></div>`
+    ).join('');
+    const nav = photos.length > 1 ? `
+      <button class="c-btn c-prev" onclick="carouselNav(this,-1)" aria-label="Previous">&#8249;</button>
+      <button class="c-btn c-next" onclick="carouselNav(this,1)" aria-label="Next">&#8250;</button>
+      <div class="c-dots">${photos.map((_,i) => `<span class="c-dot${i===0?' on':''}"></span>`).join('')}</div>` : '';
+    mediaInner = `<div class="c-track">${slides}</div>${nav}`;
+  }
+
   return `
 <div class="pcard">
-  <div class="pcard-photo">
-    ${photo
-      ? `<img src="${photo}" alt="${p.name}" loading="lazy" onerror="this.style.display='none'">`
-      : `<div class="pcard-no-photo">⛰</div>`}
+  <div class="pcard-photo" data-idx="0" data-total="${photos.length}">
+    ${mediaInner}
     ${priceBadge}
     <div class="type-badge">${p.type || 'property'}</div>
   </div>
