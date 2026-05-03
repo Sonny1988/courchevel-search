@@ -614,7 +614,7 @@ function renderCard(p) {
   ).join('');
 
   const priceBadge = pr
-    ? `<div class="price-badge">${fmtPrice(pr.weekly_price, pr.currency)}<small>per week</small></div>`
+    ? `<div class="price-badge">${pr.indicative ? 'from ' : ''}${fmtPrice(pr.weekly_price, pr.currency)}<small>per week</small></div>`
     : `<div class="price-badge" style="font-size:11px;padding:6px 10px">Price<small>on request</small></div>`;
 
   const desc = p.description
@@ -656,14 +656,14 @@ function renderCard(p) {
       <div class="stat"><span class="stat-v">${p.bedrooms || '—'}</span><span class="stat-l">Bedrooms</span></div>
       <div class="stat"><span class="stat-v">${p.capacity || '—'}</span><span class="stat-l">Guests</span></div>
       ${p.bathrooms ? `<div class="stat"><span class="stat-v">${p.bathrooms}</span><span class="stat-l">Bathrooms</span></div>` : ''}
-      ${pr ? `<div class="stat"><span class="stat-v gold">${fmtPrice(pr.weekly_price, pr.currency)}</span><span class="stat-l">Per week</span></div>` : `<div class="stat"><span class="stat-v" style="font-size:11px">On request</span><span class="stat-l">Price</span></div>`}
+      ${pr ? `<div class="stat"><span class="stat-v gold">${pr.indicative ? 'from ' : ''}${fmtPrice(pr.weekly_price, pr.currency)}</span><span class="stat-l">Per week</span></div>` : `<div class="stat"><span class="stat-v" style="font-size:11px">On request</span><span class="stat-l">Price</span></div>`}
     </div>
     <div class="chips">${chips}</div>
     ${desc}
     <!-- Print contact block -->
     <div class="print-contact">
       <strong>${p.name}</strong> — ${p.locationLabel || p.location}
-      ${pr ? `<br>Week price: <strong>${fmtPrice(pr.weekly_price, pr.currency)}</strong>` : ''}<br>
+      ${pr ? `<br>Week price: <strong>${pr.indicative ? 'from ' : ''}${fmtPrice(pr.weekly_price, pr.currency)}</strong>` : ''}<br>
       📧 ${CONTACT_EMAIL} &nbsp;·&nbsp; 🌐 courchevel.rentals
     </div>
     <!-- Screen CTA -->
@@ -719,7 +719,17 @@ function showResults(data, params) {
   document.getElementById('printCriteria').textContent = summary;
 
   if (properties.length === 0) {
-    grid.innerHTML = `
+    const hasFeatures = params.features && params.features.length > 0;
+    grid.innerHTML = hasFeatures ? `
+      <div class="no-results">
+        <div class="icon">🔍</div>
+        <h3>Feature filter not yet available</h3>
+        <p>We're currently tagging our properties with amenities. Contact us directly — we'll find the right match for you.</p>
+        <br>
+        <a href="mailto:${CONTACT_EMAIL}" class="cta cta-dark" style="display:inline-block;max-width:260px;padding:11px 24px">
+          Contact us with your requirements
+        </a>
+      </div>` : `
       <div class="no-results">
         <div class="icon">🏔</div>
         <h3>No exact match</h3>

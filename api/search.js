@@ -155,7 +155,7 @@ async function fetchPhotoMap() {
 
 // ── Cimalpes: pricing from ?fonction=infos ────────────────────────────────────
 async function fetchPricing(cimalpes_id, checkin) {
-  if (!cimalpes_id || !checkin || !CI_LOGIN || !CI_PASS) return null;
+  if (!cimalpes_id || !CI_LOGIN || !CI_PASS) return null;
   try {
     const url = `${CI_BASE}?fonction=infos`
       + `&login=${encodeURIComponent(CI_LOGIN)}`
@@ -163,18 +163,23 @@ async function fetchPricing(cimalpes_id, checkin) {
       + `&id_bien=${cimalpes_id}`;
     const xml = await withTimeout(httpGet(url), 8000);
     const blocks = xml.split('<sejour>').slice(1);
+    let cheapest = null;
     for (const block of blocks) {
-      const b      = block.split('</sejour>')[0];
-      const debut  = normalizeDate(xmlGet(b, 'date_debut'));
-      if (debut !== checkin) continue;
-      const fin     = normalizeDate(xmlGet(b, 'date_fin'));
+      const b       = block.split('</sejour>')[0];
+      const debut   = normalizeDate(xmlGet(b, 'date_debut'));
       const montant = parseFloat(xmlGet(b, 'montant')) || 0;
       const etat    = xmlGet(b, 'etat_reservation').toLowerCase();
-      if (montant > 0 && etat === 'libre') {
-        return { checkin: debut, checkout: fin, weekly_price: montant, currency: 'EUR' };
+      if (montant <= 0 || etat !== 'libre') continue;
+      if (checkin && debut === checkin) {
+        const fin = normalizeDate(xmlGet(b, 'date_fin'));
+        return { checkin: debut, checkout: fin, weekly_price: montant, currency: 'EUR', indicative: false };
+      }
+      if (!cheapest || montant < cheapest.weekly_price) {
+        const fin = normalizeDate(xmlGet(b, 'date_fin'));
+        cheapest = { checkin: debut, checkout: fin, weekly_price: montant, currency: 'EUR', indicative: true };
       }
     }
-    return null;
+    return cheapest;
   } catch {
     return null;
   }
