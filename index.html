@@ -633,7 +633,7 @@ function renderCard(p) {
     mediaInner = `<div class="pcard-no-photo">⛰</div>`;
   } else {
     const slides = photos.map((url, i) =>
-      `<div class="c-slide${i > 0 ? ' c-hidden' : ''}"><img src="${url}" alt="${p.name}" loading="lazy" onerror="this.parentNode.style.display='none'"></div>`
+      `<div class="c-slide${i > 0 ? ' c-hidden' : ''}"><img src="${url}" alt="${p.name}" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.style.display='none'"></div>`
     ).join('');
     const nav = photos.length > 1 ? `
       <button class="c-btn c-prev" onclick="carouselNav(this,-1)" aria-label="Previous">&#8249;</button>
@@ -712,7 +712,10 @@ function showResults(data, params) {
     : `${total} propert${total > 1 ? 'ies' : 'y'} found`;
 
   const summary = buildSummary(params);
-  document.getElementById('summaryBar').textContent = summary || 'All active properties';
+  const noDate = !params.checkin;
+  document.getElementById('summaryBar').innerHTML =
+    (summary ? `<span>${summary}</span>` : '<span>All active properties</span>') +
+    (noDate ? ' &nbsp;·&nbsp; <em style="color:#c9a96e">Select an arrival date to see live prices</em>' : '');
   document.getElementById('printCriteria').textContent = summary;
 
   if (properties.length === 0) {

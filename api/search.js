@@ -1,18 +1,10 @@
 /**
  * Vercel Serverless Function — /api/search
  *
- * Data sources:
- *   Photos  → Cimalpes ?fonction=biens  (field: photo_web, one per property)
- *   Pricing → Cimalpes ?fonction=infos  (sejours with date + montant, per property)
- *   Props   → Airtable Properties table (name, location, bedrooms, etc.)
- *
- * Pricing is NEVER sourced from Airtable. Airtable = property metadata only.
- *
- * Required env vars:
- *   AIRTABLE_API_KEY
- *   AIRTABLE_BASE_ID   (default: app1gxPAbJp8AzH3i)
- *   CIMALPES_LOGIN
- *   CIMALPES_PASS
+ * Photos  → Airtable photo_url field (primary, populated by /api/sync-photos)
+ *            Cimalpes ?fonction=biens (fallback, live feed)
+ * Pricing → Cimalpes ?fonction=infos (always live, never Airtable)
+ * Props   → Airtable Properties table (metadata only)
  */
 
 const https = require('https');
@@ -33,7 +25,7 @@ const LOC_LABELS = {
   'le-praz':         'Le Praz',
 };
 
-// ── HTTP helper ───────────────────────────────────────────────────────────────
+// ── HTTP helpers ──────────────────────────────────────────────────────────────
 function httpGet(url, headers = {}) {
   return new Promise((resolve, reject) => {
     https.get(url, { headers }, res => {
@@ -41,6 +33,26 @@ function httpGet(url, headers = {}) {
       res.on('data', d => chunks.push(d));
       res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     }).on('error', reject);
+  });
+}
+
+function httpPatch(url, body, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const data = Buffer.from(JSON.stringify(body));
+    const u = new URL(url);
+    const opts = {
+      hostname: u.hostname, path: u.pathname + u.search,
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': data.length, ...headers },
+    };
+    const req = https.request(opts, res => {
+      const chunks = [];
+      res.on('data', d => chunks.push(d));
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    });
+    req.on('error', reject);
+    req.write(data);
+    req.end();
   });
 }
 
@@ -82,6 +94,22 @@ async function atPaginate(tableId, params) {
   return records;
 }
 
+// Write photo_url back to Airtable (fire-and-forget, non-blocking)
+function writePhotosBack(updates) {
+  if (!updates.length || !AT_KEY) return;
+  const doWrite = async () => {
+    const records = updates.map(u => ({ id: u.id, fields: { photo_url: u.photo_url } }));
+    for (let i = 0; i < records.length; i += 10) {
+      await httpPatch(
+        `https://api.airtable.com/v0/${AT_BASE}/${TABLES.Properties}`,
+        { records: records.slice(i, i + 10) },
+        { Authorization: `Bearer ${AT_KEY}` }
+      );
+    }
+  };
+  doWrite().catch(e => console.error('Photo write-back failed:', e.message));
+}
+
 // ── Cimalpes XML helper ───────────────────────────────────────────────────────
 function xmlGet(block, tag) {
   const marker = '<' + tag + '><![CDATA[';
@@ -95,15 +123,14 @@ function xmlGet(block, tag) {
   return m ? m[1].trim() : '';
 }
 
-// Normalize date to YYYY-MM-DD (handles both YYYY-MM-DD and DD/MM/YYYY from Cimalpes)
+// Normalize date to YYYY-MM-DD (handles DD/MM/YYYY from Cimalpes)
 function normalizeDate(s) {
   if (!s) return '';
   const dmy = s.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   return dmy ? `${dmy[3]}-${dmy[2]}-${dmy[1]}` : s.trim();
 }
 
-// ── Cimalpes: photo map from ?fonction=biens (full feed) ─────────────────────
-// Returns { cimalpes_id (string) → photo_url (string) }
+// ── Cimalpes: photo map from ?fonction=biens ──────────────────────────────────
 async function fetchPhotoMap() {
   if (!CI_LOGIN || !CI_PASS) return {};
   try {
@@ -126,31 +153,7 @@ async function fetchPhotoMap() {
   }
 }
 
-// ── Cimalpes: single-property photo fallback via ?fonction=biens&id_bien=XXX ─
-// Used for properties not returned by the global biens feed.
-async function fetchOnePhoto(cimalpes_id) {
-  if (!cimalpes_id || !CI_LOGIN || !CI_PASS) return null;
-  try {
-    const url = `${CI_BASE}?fonction=biens`
-      + `&login=${encodeURIComponent(CI_LOGIN)}`
-      + `&pass=${encodeURIComponent(CI_PASS)}`
-      + `&id_bien=${encodeURIComponent(cimalpes_id)}`;
-    const xml = await withTimeout(httpGet(url), 8000);
-    const blocks = xml.split('<bien>').slice(1);
-    for (const block of blocks) {
-      const b     = block.split('</bien>')[0];
-      const id    = xmlGet(b, 'id_bien');
-      const photo = xmlGet(b, 'photo_web');
-      if (id && id.trim() === cimalpes_id.toString().trim() && photo) return photo.trim();
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 // ── Cimalpes: pricing from ?fonction=infos ────────────────────────────────────
-// Returns { checkin, checkout, weekly_price, currency } or null
 async function fetchPricing(cimalpes_id, checkin) {
   if (!cimalpes_id || !checkin || !CI_LOGIN || !CI_PASS) return null;
   try {
@@ -164,9 +167,9 @@ async function fetchPricing(cimalpes_id, checkin) {
       const b      = block.split('</sejour>')[0];
       const debut  = normalizeDate(xmlGet(b, 'date_debut'));
       if (debut !== checkin) continue;
-      const fin     = xmlGet(b, 'date_fin');
+      const fin     = normalizeDate(xmlGet(b, 'date_fin'));
       const montant = parseFloat(xmlGet(b, 'montant')) || 0;
-      const etat    = xmlGet(b, 'etat_reservation');
+      const etat    = xmlGet(b, 'etat_reservation').toLowerCase();
       if (montant > 0 && etat === 'libre') {
         return { checkin: debut, checkout: fin, weekly_price: montant, currency: 'EUR' };
       }
@@ -199,36 +202,48 @@ module.exports = async function handler(req, res) {
     }
     const propFormula = pf.length > 1 ? `AND(${pf.join(',')})` : pf[0] || '1';
 
-    // ── Parallel: Cimalpes biens (photos) + Airtable Properties ──────────
+    // ── Parallel: Cimalpes biens (photo map) + Airtable Properties ───────
     const [photoMap, propRecords] = await Promise.all([
       fetchPhotoMap(),
       atPaginate(TABLES.Properties, {
         filterByFormula: propFormula,
         fields: ['name', 'type', 'location', 'bedrooms', 'bathrooms', 'capacity',
-                 'features', 'cimalpes_id', 'description_en'],
+                 'features', 'cimalpes_id', 'description_en', 'photo_url'],
         maxRecords: 100,
       }).catch(e => { console.error('Properties failed:', e.message); return []; }),
     ]);
 
-    // Sort alphabetically, take first 20
-    propRecords.sort((a, b) => (a.fields.name || '').localeCompare(b.fields.name || ''));
+    // Sort: photos-first (Airtable photo_url or Cimalpes feed match), then alphabetical
+    propRecords.sort((a, b) => {
+      const aId = (a.fields.cimalpes_id || '').toString().trim();
+      const bId = (b.fields.cimalpes_id || '').toString().trim();
+      const aHas = !!(a.fields.photo_url || photoMap[aId]);
+      const bHas = !!(b.fields.photo_url || photoMap[bId]);
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      return (a.fields.name || '').localeCompare(b.fields.name || '');
+    });
+
     const results = propRecords.slice(0, 20);
 
-    // ── Fetch pricing + fallback photos in parallel ───────────────────────
-    const [pricingList, fallbackPhotos] = await Promise.all([
-      Promise.all(results.map(r => fetchPricing(r.fields.cimalpes_id || null, checkin || null))),
-      Promise.all(results.map(r => {
-        const cId = (r.fields.cimalpes_id || '').toString().trim();
-        return photoMap[cId] ? Promise.resolve(null) : fetchOnePhoto(cId);
-      })),
-    ]);
+    // ── Pricing in parallel ───────────────────────────────────────────────
+    const pricingList = await Promise.all(
+      results.map(r => fetchPricing(r.fields.cimalpes_id || null, checkin || null))
+    );
 
-    // ── Build response ────────────────────────────────────────────────────
+    // ── Build response + collect photos to write back to Airtable ─────────
+    const photoWriteBack = [];
+
     let properties = results.map((r, i) => {
       const f      = r.fields;
       const cId    = (f.cimalpes_id || '').toString().trim();
-      const photo  = photoMap[cId] || fallbackPhotos[i] || null;
+      // Photo priority: Airtable cached > Cimalpes live feed
+      const photo  = f.photo_url || photoMap[cId] || null;
       const pricing = pricingList[i] || null;
+
+      // Lazy-cache: if we found a Cimalpes photo and Airtable doesn't have it yet, write back
+      if (!f.photo_url && photoMap[cId]) {
+        photoWriteBack.push({ id: r.id, photo_url: photoMap[cId] });
+      }
 
       // Budget filter (only when pricing is known)
       const price = pricing ? pricing.weekly_price : null;
@@ -252,13 +267,18 @@ module.exports = async function handler(req, res) {
       };
     }).filter(Boolean);
 
-    // Sort: priced first (cheapest → most expensive), then unpriced alphabetically
+    // Sort: priced first (cheapest → most expensive), then by photo, then alphabetical
     properties.sort((a, b) => {
       if (a.pricing && b.pricing) return a.pricing.weekly_price - b.pricing.weekly_price;
       if (a.pricing) return -1;
       if (b.pricing) return 1;
+      const aHas = a.photos.length > 0, bHas = b.photos.length > 0;
+      if (aHas !== bHas) return aHas ? -1 : 1;
       return a.name.localeCompare(b.name);
     });
+
+    // Fire-and-forget: persist newly found Cimalpes photos into Airtable
+    writePhotosBack(photoWriteBack);
 
     return res.status(200).json({ properties, total: properties.length });
 
