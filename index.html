@@ -670,7 +670,7 @@ function renderCard(p) {
     </div>
     <!-- Screen CTA -->
     <div class="card-footer no-print">
-      <a href="https://courchevel.rentals/properties/${p.id}" class="cta cta-sheet" target="_blank">View details</a>
+      ${p.cimalpes_id ? `<a href="https://courchevel.rentals/properties/${p.cimalpes_id}" class="cta cta-sheet" target="_blank">View details</a>` : ''}
       <a href="mailto:${CONTACT_EMAIL}?subject=Enquiry%3A%20${encodeURIComponent(p.name)}" class="cta cta-dark">Email</a>
       <a href="${waHref}" class="cta cta-gold" target="_blank">WhatsApp</a>
     </div>
