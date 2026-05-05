@@ -323,14 +323,12 @@ body { font-family: var(--sans); background: #ede9e3; color: var(--text); min-he
 <!-- Screen header -->
 <header class="site-header no-print">
   <a href="https://courchevel.rentals" class="logo">courchevel.rentals</a>
-  <span class="tagline">Luxury Alpine Rentals · Les 3 Vallées</span>
 </header>
 
 <!-- Print-only page header (appears at top when printing) -->
 <div class="print-header" id="printHeader">
   <div>
     <div style="font-family:Georgia,serif;font-size:14pt;color:#c9a96e;letter-spacing:2px;text-transform:uppercase">courchevel.rentals</div>
-    <div style="font-size:8pt;color:rgba(255,255,255,.4);margin-top:2px;letter-spacing:1px">Luxury Alpine Rentals · Les 3 Vallées</div>
   </div>
   <div id="printCriteria" style="text-align:right;font-size:9pt;color:rgba(255,255,255,.65);max-width:50%"></div>
 </div>
@@ -357,6 +355,32 @@ body { font-family: var(--sans); background: #ede9e3; color: var(--text); min-he
               <option value="courchevel-1550">Courchevel 1550</option>
               <option value="la-tania">La Tania</option>
               <option value="le-praz">Le Praz (1300)</option>
+            </select>
+          </div>
+
+          <!-- Quartier -->
+          <div class="fgroup">
+            <label class="flabel">Quartier</label>
+            <select class="fselect" name="quartier" id="quartierSelect">
+              <option value="">Any quartier</option>
+              <optgroup label="Courchevel 1850">
+                <option value="Bellecôte">Bellecôte</option>
+                <option value="Centre">Centre (1850)</option>
+                <option value="Cospillot">Cospillot</option>
+                <option value="Plantret">Plantret</option>
+              </optgroup>
+              <optgroup label="Moriond (1650)">
+                <option value="Ariondaz">Ariondaz</option>
+                <option value="Entrée station">Entrée station</option>
+                <option value="Petit Moriond">Petit Moriond</option>
+              </optgroup>
+              <optgroup label="Village (1550)">
+                <option value="Les Gravelles">Les Gravelles</option>
+              </optgroup>
+              <optgroup label="Le Praz / La Tania">
+                <option value="Le Praz">Le Praz</option>
+                <option value="La Tania">La Tania</option>
+              </optgroup>
             </select>
           </div>
 
@@ -481,7 +505,7 @@ body { font-family: var(--sans); background: #ede9e3; color: var(--text); min-he
 </main>
 
 <footer class="site-footer no-print">
-  <a href="https://courchevel.rentals">courchevel.rentals</a> · Luxury Alpine Rentals · Les 3 Vallées<br>
+  <a href="https://courchevel.rentals">courchevel.rentals</a><br>
   <small style="margin-top:4px;display:block">info@courchevel.rentals</small>
 </footer>
 
@@ -513,6 +537,20 @@ const LOC = {
   'courchevel-1550': 'Courchevel 1550',
   'la-tania':        'La Tania',
   'le-praz':         'Le Praz',
+};
+
+// Values match Cimalpes nom_quartier exactly
+const QUARTIER = {
+  'Bellecôte':      'Bellecôte',
+  'Centre':         'Centre',
+  'Cospillot':      'Cospillot',
+  'Plantret':       'Plantret',
+  'Ariondaz':       'Ariondaz',
+  'Entrée station': 'Entrée station',
+  'Petit Moriond':  'Petit Moriond',
+  'Les Gravelles':  'Les Gravelles',
+  'Le Praz':        'Le Praz',
+  'La Tania':       'La Tania',
 };
 
 // ── Date helpers ──────────────────────────────────────────────────────────
@@ -579,6 +617,7 @@ function fmtPrice(n, currency) {
 function buildSummary(p) {
   const parts = [];
   if (p.location && p.location !== 'any') parts.push(LOC[p.location] || p.location);
+  if (p.quartier) parts.push(QUARTIER[p.quartier] || p.quartier);
   if (p.checkin) parts.push(`${fmtDate(p.checkin)} → ${fmtDate(p.checkout || addDays(p.checkin,7))}`);
   if (p.guests) parts.push(`${p.guests}+ guests`);
   if (p.budget_min && p.budget_max)
@@ -653,7 +692,7 @@ function renderCard(p) {
   </div>
   <div class="pcard-body">
     <div class="pcard-name">${p.name}</div>
-    <div class="pcard-loc">📍 ${p.locationLabel || p.location}</div>
+    <div class="pcard-loc">📍 ${p.locationLabel || p.location}${p.quartierLabel ? ' · ' + p.quartierLabel : ''}</div>
     <div class="stats-row">
       <div class="stat"><span class="stat-v">${p.bedrooms || '—'}</span><span class="stat-l">Bedrooms</span></div>
       <div class="stat"><span class="stat-v">${p.capacity || '—'}</span><span class="stat-l">Guests</span></div>
@@ -670,7 +709,7 @@ function renderCard(p) {
     </div>
     <!-- Screen CTA -->
     <div class="card-footer no-print">
-      ${p.cimalpes_id ? `<a href="https://courchevel.rentals/properties/${p.cimalpes_id}" class="cta cta-sheet" target="_blank">View details</a>` : ''}
+      ${p.cimalpes_id && p.has_details_page ? `<a href="https://courchevel.rentals/properties/${p.cimalpes_id}" class="cta cta-sheet" target="_blank">View details</a>` : ''}
       <a href="mailto:${CONTACT_EMAIL}?subject=Enquiry%3A%20${encodeURIComponent(p.name)}" class="cta cta-dark">Email</a>
       <a href="${waHref}" class="cta cta-gold" target="_blank">WhatsApp</a>
     </div>
@@ -686,6 +725,7 @@ async function doSearch(params) {
 
   const qs = new URLSearchParams();
   if (params.location && params.location !== 'any') qs.set('location', params.location);
+  if (params.quartier) qs.set('quartier', params.quartier);
   if (params.checkin) qs.set('checkin', params.checkin);
   if (params.guests) qs.set('guests', params.guests);
   if (params.budget_min) qs.set('budget_min', params.budget_min);
@@ -762,6 +802,7 @@ document.getElementById('searchForm').addEventListener('submit', e => {
   const features = [...f.querySelectorAll('input[name="features"]:checked')].map(cb => cb.value);
   doSearch({
     location:   f.location.value,
+    quartier:   f.quartier.value,
     type:       f.type.value,
     checkin:    f.checkin.value || '',
     checkout:   f.checkout.value || '',
